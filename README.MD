@@ -1,90 +1,65 @@
-# Bot Claudinho
+# Bot Claudinho — sem banco de dados
 
-Bot privado de Telegram em Node.js 24, Vercel Functions, Claude Opus e Supabase.
-Aceita texto, fotos JPEG do Telegram e documentos PDF/TXT. `/start` e `/clear`
-apagam a memória. Apenas o usuário configurado, em conversa privada, pode usá-lo.
+Bot privado de Telegram em Node.js 24 e Vercel Functions, alimentado pelo Claude Opus.
+Aceita texto, fotos JPEG do Telegram e documentos PDF/TXT, **sem Supabase**.
 
-## Estado inicial
+**Cada mensagem é independente.** O bot não salva nem recupera histórico de conversa.
+Inclua todo o contexto na mensagem atual ou na legenda do arquivo/foto.
+`/start` explica o funcionamento; `/clear` informa que não há memória para apagar.
 
-O código pode ser implantado sem credenciais. `GET /api/webhook` informa somente que
- o endpoint está disponível, não que Telegram, Anthropic e Supabase estejam conectados.
-Nenhuma chave vem no repositório. O bot só fica ativo após os passos abaixo.
+## Configuração na Vercel
 
-## 1. Banco Supabase
+Selecione o projeto **botclaudinho** e depois **Environment Variables** na barra lateral.
+Cadastre Name, Value e ambiente; clique **Save**. Use Production para o bot definitivo.
+Faça uma nova implantação após salvar: alterações não afetam implantações anteriores.
 
-No **SQL Editor** de um projeto Supabase, execute [schema.sql](./schema.sql).
-O script cria a tabela e duas funções RPC com acesso restrito a `service_role`.
-RLS fica ativado e os papéis `anon`/`authenticated` não têm acesso à tabela ou RPCs.
-A chave administrativa deve ficar apenas no servidor.
-
-O script é repetível para este projeto, mas não migra a tabela do exemplo original
-caso ela já exista com colunas diferentes. Nesse caso, faça uma migração preservando
-os dados antes de ativar o bot; não apague a tabela sem backup.
-
-Referência: [RLS no Supabase](https://supabase.com/docs/guides/database/postgres/row-level-security).
-
-## 2. Variáveis na Vercel
-
-Selecione o projeto **botclaudinho** no dashboard e depois **Environment Variables**
-na barra lateral. Cadastre Name, Value e ambiente; clique **Save**.
-Faça uma nova implantação após salvar (mudanças não alteram implantações anteriores).
-Use credenciais de teste separadas em Preview; não registre o mesmo bot em dois ambientes.
-
-| Variável | Valor que você informa diretamente na Vercel |
+| Variável | Valor informado diretamente na Vercel |
 | --- | --- |
 | `TELEGRAM_TOKEN` | Token do seu bot obtido no BotFather |
-| `ANTHROPIC_API_KEY` | Chave da API Anthropic, com acesso e saldo para o modelo |
-| `ALLOWED_USER_ID` | Seu ID numérico de usuário Telegram (não o username nem o ID do bot) |
-| `SUPABASE_URL` | URL HTTPS do projeto Supabase |
-| `SUPABASE_SERVICE_ROLE_KEY` | Chave administrativa secret/service_role, nunca anon/publishable |
+| `ANTHROPIC_API_KEY` | Chave da API Anthropic com acesso e saldo para o modelo |
+| `ALLOWED_USER_ID` | Seu ID numérico de usuário Telegram, não username nem ID do bot |
 | `TELEGRAM_WEBHOOK_SECRET` | Segredo aleatório de 32–256 caracteres: letras, números, `_` e `-` |
 | `ANTHROPIC_MODEL` | Opcional; padrão `claude-opus-5-5` |
 
+Nenhuma variável `SUPABASE_*`, conta Supabase ou script SQL é necessário.
+Se já existirem variáveis Supabase antigas, esta versão simplesmente não as utiliza.
 Gere o segredo localmente com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
 Não envie credenciais em chats, commits, capturas, URLs ou argumentos de comandos.
 
-O modelo padrão foi conferido na [documentação Anthropic](https://platform.claude.com/docs/en/models/opus-5-5/overview).
-O identificador `claude-3-5-opus-latest` do exemplo não é usado.
-O consumo da Anthropic é cobrado separadamente e depende do tamanho das conversas.
+Referências: [Variáveis na Vercel](https://vercel.com/docs/environment-variables/managing-environment-variables)
+e [modelo Claude Opus](https://platform.claude.com/docs/en/models/opus-5-5/overview).
+O consumo Anthropic é cobrado separadamente. Não use credenciais de produção em Preview.
 
-Referência: [Variáveis na Vercel](https://vercel.com/docs/environment-variables/managing-environment-variables).
-
-## 3. Registrar webhook — no seu computador
+## Registrar webhook — no seu computador
 
 Requer Node.js 24. Depois de publicar a versão definitiva:
 
-1. Baixe/clone o repositório no seu computador e execute `npm ci`.
+1. Baixe/clone o repositório e execute `npm ci`.
 2. Copie `.env.example` para `.env.local` e preencha os mesmos valores em um editor local.
 3. Preencha também `BOT_WEBHOOK_URL` com `https://DOMINIO-DE-PRODUCAO/api/webhook`.
 4. Execute `npm run register-webhook`.
-5. Abra seu bot no Telegram, envie `/start`, texto, uma foto e um PDF/TXT.
+5. No Telegram, teste `/start`, texto, foto e PDF/TXT. Cada envio deve conter seu próprio contexto.
 
-O script registra o `secret_token`, somente updates de mensagem e `max_connections: 1`
-para manter a ordem das conversas. Não descarta mensagens pendentes. Nunca imprime
-URLs com tokens ou erros brutos. Confirma a URL registrada com `getWebhookInfo`.
-Não há rota pública de administração para registrar o webhook.
-O domínio de produção precisa estar acessível ao Telegram, sem uma tela de login.
-Não registre uma URL de preview protegida.
+O script registra `secret_token`, somente updates de mensagem e `max_connections: 1`.
+Não descarta mensagens pendentes nem imprime tokens/URLs secretas. Confirma a URL
+registrada com `getWebhookInfo`. O domínio deve estar acessível ao Telegram sem login;
+não registre uma URL de preview protegida. Não há rota pública de administração.
 
-## Segurança e limites
+## Segurança, privacidade e limites
 
-- Não há resposta para usuários não autorizados; apenas o chat privado do dono é aceito.
-- Arquivos de até 5 MiB, limitados também durante o download. PDFs/TXT: até 60.000
-  caracteres extraídos. PDF digitalizado sem texto exige OCR externo ou envio como foto.
-- O PDF é analisado no servidor; a extração não executa scripts do documento.
-- Memória de até 6 turnos completos (12 mensagens), com texto dos documentos. Fotos
-  são enviadas ao Claude no turno atual, mas seus pixels não são persistidos; reenvie
-  a foto se quiser analisá-la novamente. O texto da resposta fica na memória.
-- `/clear` remove o histórico textual mas mantém metadados de deduplicação.
-  Backups/retencão do Supabase e políticas dos provedores são independentes.
-- Lock persistente por usuário e marcador de update evitam processamento concorrente
-  e repetição normal. Lock expira em 6 minutos após interrupção; Telegram pode tentar novamente.
-- A memória é gravada **antes** do envio da resposta. Não é uma fila de entrega garantida:
-  falha após gravação pode perder a resposta, e falha antes da gravação pode repetir
-  uma chamada paga ao Claude. Entrega exatamente uma vez não é garantida. Se ocorrer,
-  consulte os logs e reenvie sua pergunta; para uma garantia maior, adicione uma outbox/fila.
-- Limite de execução: 300 segundos; chamada Claude: 120 segundos sem retries automáticos.
-  Erros dos provedores não são expostos ao usuário ou logados com tokens.
+- Só o chat privado do dono é aceito. Usuários não autorizados são ignorados.
+- Arquivos até 5 MiB, com limite também durante download. Até 60.000 caracteres
+  extraídos de PDF/TXT. PDFs digitalizados sem texto precisam de OCR externo ou fotos.
+- O bot processa os dados temporariamente, sem persistir histórico ou conteúdo em banco.
+  Telegram e Anthropic recebem o conteúdo necessário; suas políticas de retenção são independentes.
+- Não há lock ou deduplicação persistentes. Retries do Telegram, reinícios ou timeouts
+  podem repetir respostas e chamadas pagas. `max_connections: 1` não garante entrega única.
+- Falha de entrega recebe HTTP 200 para não pedir deliberadamente uma repetição que possa
+  duplicar chamadas pagas. Isso pode perder uma resposta; reenvie a pergunta se necessário.
+- Execução máxima de 300 segundos, chamada Claude com timeout de 120 segundos sem retries
+  automáticos. Erros brutos dos provedores e tokens não são exibidos nem logados pelo código.
+- `GET /api/webhook` apenas confirma que o endpoint carrega; não verifica credenciais
+  ou conectividade com os provedores. A raiz `/` não contém uma interface web.
 
 ## Verificação local
 
@@ -94,6 +69,6 @@ npm test
 npm run check
 ```
 
-Os testes usam serviços simulados, um PDF real gerado em memória e PostgreSQL local
-via PGlite para verificar SQL, grants, lock, deduplicação e persistência. Não chamam
-Telegram/Anthropic nem criam recursos no Supabase. Integração real requer credenciais.
+Os testes usam serviços simulados e um PDF real gerado em memória. Verificam isolamento
+entre mensagens, configuração sem Supabase, webhook privado, limites e tratamento de erros.
+Não chamam Telegram/Anthropic; a integração real exige credenciais e teste no Telegram.

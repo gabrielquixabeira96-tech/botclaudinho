@@ -1,6 +1,4 @@
-import { randomUUID } from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
-import { createClient } from '@supabase/supabase-js';
 import { chunks, downloadFile, processMessage, readConfig, telegramClient, validSecret } from '../lib/bot.js';
 
 export function createHandler({ env = process.env, makeServices = services } = {}) {
@@ -23,46 +21,29 @@ export function createHandler({ env = process.env, makeServices = services } = {
     if (!message || message.from?.id !== config.userId || message.chat?.id !== config.userId || message.chat?.type !== 'private') {
       return res.status(200).end();
     }
-    const lease = randomUUID();
-    let phase = 'claim';
+    let phase = 'process';
     try {
-      const { db, telegram, complete, pdfText } = makeServices(config);
-      const { data: claim, error } = await db.rpc('claim_telegram_update', {
-        p_user_id: config.userId, p_update_id: update.update_id, p_lease: lease,
-      });
-      if (error) throw new Error('storage_failed');
-      if (claim.status === 'done') return res.status(200).end();
-      if (claim.status !== 'acquired') return res.status(503).end();
-      phase = 'process';
-      const result = await processMessage(message, claim.history || [], {
+      const { telegram, complete, pdfText } = makeServices(config);
+      const result = await processMessage(message, {
         download: file => downloadFile(file, telegram, config.token), pdfText, complete,
         typing: () => telegram('sendChatAction', { chat_id: config.userId, action: 'typing' }),
       });
-      // Persist before delivery. This prevents repeated AI calls for Telegram retries.
-      // A crash after commit and before delivery can lose a reply (see README).
-      phase = 'commit';
-      const saved = await db.rpc('finish_telegram_update', {
-        p_user_id: config.userId, p_update_id: update.update_id, p_lease: lease, p_history: result.history,
-      });
-      if (saved.error || saved.data !== true) throw new Error('storage_failed');
       phase = 'delivery';
       for (const text of chunks(result.answer)) await telegram('sendMessage', { chat_id: config.userId, text });
       return res.status(200).end();
     } catch {
       console.error(JSON.stringify({ event: 'webhook_failed', phase, updateId: update.update_id }));
-      // Never resend a committed reply automatically: delivery may have partially succeeded.
+      // Delivery may have partially succeeded. Acknowledge delivery errors to avoid
+      // deliberately requesting a retry that could repeat a paid AI call.
       return res.status(phase === 'delivery' ? 200 : 503).end();
     }
   };
 }
 
 function services(config) {
-  const db = createClient(config.url, config.serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
   const anthropic = new Anthropic({ apiKey: config.apiKey, timeout: 120_000, maxRetries: 0 });
   return {
-    db, telegram: telegramClient(config.token),
+    telegram: telegramClient(config.token),
     complete: messages => anthropic.messages.create({ model: config.model, max_tokens: 4096, messages }),
     pdfText: async buffer => {
       const { PDFParse } = await import('pdf-parse');

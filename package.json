@@ -13,10 +13,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.6.0",
-    "@supabase/supabase-js": "^2.119.0",
     "pdf-parse": "^2.4.5"
-  },
-  "devDependencies": {
-    "@electric-sql/pglite": "^0.5.15"
   }
 }

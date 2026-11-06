@@ -2,11 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PDFParse } from 'pdf-parse';
-import { chunks, validSecret, messageContent, processMessage, downloadFile, MAX_FILE_BYTES } from '../lib/bot.js';
+import { chunks, validSecret, messageContent, processMessage, readConfig, downloadFile, MAX_FILE_BYTES } from '../lib/bot.js';
 import { createHandler } from '../api/webhook.js';
 
 const env = { TELEGRAM_TOKEN: 'test', ANTHROPIC_API_KEY: 'test', ALLOWED_USER_ID: '123',
-  SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'test',
   TELEGRAM_WEBHOOK_SECRET: 'a'.repeat(40) };
 function response() {
   return { code: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; },
@@ -35,8 +34,8 @@ test('download com tamanho omitido ainda aplica limite', async () => {
   const response = new Response(new Uint8Array(MAX_FILE_BYTES + 1));
   await assert.rejects(downloadFile({}, async () => ({ file_path: 'documents/file.txt' }), 'test', async () => response), /file_too_large/);
 });
-test('foto vai à IA mas base64 não fica no banco', async () => {
-  const result = await processMessage({ photo: [{ file_id: 'a' }] }, [], {
+test('foto vai à IA sem retornar histórico', async () => {
+  const result = await processMessage({ photo: [{ file_id: 'a' }] }, {
     download: async () => Buffer.from('image'), typing: async () => {},
     complete: async messages => {
       assert.equal(messages[0].content[0].type, 'image');
@@ -44,26 +43,44 @@ test('foto vai à IA mas base64 não fica no banco', async () => {
     },
   });
   assert.equal(result.answer, 'Imagem.');
-  assert.equal(typeof result.history[0].content, 'string');
-  assert.ok(!JSON.stringify(result.history).includes('aW1hZ2U='));
+  assert.deepEqual(Object.keys(result), ['answer']);
 });
 test('TXT e PDF processados; documento vazio rejeitado', async () => {
   const deps = { download: async () => Buffer.from('conteúdo'), pdfText: async () => 'texto PDF' };
-  assert.match((await messageContent({ document: { file_name: 'x.TXT' } }, deps)).memory, /conteúdo/);
-  assert.match((await messageContent({ document: { file_name: 'x.pdf' } }, deps)).memory, /texto PDF/);
+  assert.match((await messageContent({ document: { file_name: 'x.TXT' } }, deps)).content[0].text, /conteúdo/);
+  assert.match((await messageContent({ document: { file_name: 'x.pdf' } }, deps)).content[0].text, /texto PDF/);
   await assert.rejects(messageContent({ document: { file_name: 'x.pdf' } }, { ...deps, pdfText: async () => '' }), /empty_document/);
 });
-test('erros de provedor nunca vazam e histórico começa com usuário', async () => {
-  const result = await processMessage({ text: 'oi' }, [], { typing: async () => {}, complete: async () => { throw new Error('secret-api-key'); } });
+test('erros de provedor nunca vazam', async () => {
+  const result = await processMessage({ text: 'oi' }, { typing: async () => {}, complete: async () => { throw new Error('secret-api-key'); } });
   assert.ok(!result.answer.includes('secret-api-key'));
-  const history = Array.from({ length: 12 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'old' }));
-  const next = await processMessage({ text: 'oi' }, history, { typing: async () => {}, complete: async () => ({ content: [{ type: 'text', text: 'ok' }] }) });
-  assert.equal(next.history.length, 12);
-  assert.equal(next.history[0].role, 'user');
+  assert.deepEqual(Object.keys(result), ['answer']);
 });
-test('/clear apaga memória sem IA', async () => {
-  const result = await processMessage({ text: '/clear' }, [{ role: 'user', content: 'old' }], {});
-  assert.deepEqual(result.history, []);
+test('cada chamada recebe só a mensagem atual', async () => {
+  const calls = [];
+  const deps = { typing: async () => {}, complete: async messages => {
+    calls.push(messages);
+    return { content: [{ type: 'text', text: 'ok' }] };
+  } };
+  await processMessage({ text: 'primeira pergunta' }, deps);
+  await processMessage({ text: 'segunda pergunta' }, deps);
+  assert.deepEqual(calls.map(messages => messages.length), [1, 1]);
+  assert.equal(calls[1][0].content[0].text, 'segunda pergunta');
+  assert.ok(!JSON.stringify(calls[1]).includes('primeira pergunta'));
+});
+test('/start e /clear explicam ausência de memória sem chamar IA', async () => {
+  for (const text of ['/start', '/clear']) {
+    const result = await processMessage({ text }, {});
+    assert.match(result.answer, /independente/);
+    assert.deepEqual(Object.keys(result), ['answer']);
+  }
+});
+test('configuração não exige Supabase e mantém segredos/whitelist obrigatórios', () => {
+  assert.equal(readConfig(env).userId, 123);
+  for (const key of ['TELEGRAM_TOKEN', 'ANTHROPIC_API_KEY', 'ALLOWED_USER_ID', 'TELEGRAM_WEBHOOK_SECRET']) {
+    assert.throws(() => readConfig({ ...env, [key]: undefined }), /configuration_missing/);
+  }
+  assert.throws(() => readConfig({ ...env, ALLOWED_USER_ID: 'username' }), /configuration_invalid/);
 });
 test('endpoint GET funciona sem credenciais; métodos inválidos rejeitados', async () => {
   const handler = createHandler({ env: {} });
@@ -78,25 +95,40 @@ test('webhook rejeita segredo ausente e ignora usuário/grupo sem serviços', as
   const bad = response(); await handler(request({ from: { id: 999 }, chat: { id: 999, type: 'private' } }), bad); assert.equal(bad.code, 200);
   await handler(request({ from: { id: 123 }, chat: { id: -1, type: 'group' } }), response());
 });
-test('update repetido não chama IA e lock ocupado retorna retry', async () => {
-  for (const [status, code] of [['done', 200], ['busy', 503]]) {
-    const handler = createHandler({ env, makeServices: () => ({ db: { rpc: async () => ({ data: { status } }) } }) });
-    const res = response(); await handler(request(), res); assert.equal(res.code, code);
-  }
-});
-test('salva antes de enviar resposta ao Telegram', async () => {
-  const events = [];
+test('webhook autorizado funciona sem banco e updates repetidos não têm deduplicação durável', async () => {
+  const calls = [];
+  const sent = [];
   const handler = createHandler({ env, makeServices: () => ({
-    db: { rpc: async name => {
-      events.push(name);
-      return { data: name === 'claim_telegram_update' ? { status: 'acquired', history: [] } : true };
-    } },
-    complete: async () => ({ content: [{ type: 'text', text: 'oi' }] }),
-    telegram: async method => { events.push(method); },
+    complete: async messages => { calls.push(messages); return { content: [{ type: 'text', text: 'oi' }] }; },
+    telegram: async (method, payload) => { if (method === 'sendMessage') sent.push(payload); },
   }) });
-  const res = response(); await handler(request(), res);
-  assert.equal(res.code, 200);
-  assert.ok(events.indexOf('finish_telegram_update') < events.indexOf('sendMessage'));
+  for (const text of ['primeira', 'segunda']) {
+    const req = request(); req.body.message.text = text;
+    const res = response(); await handler(req, res); assert.equal(res.code, 200);
+  }
+  assert.equal(calls.length, 2);
+  assert.equal(sent.length, 2);
+  assert.equal(calls[1].length, 1);
+  assert.equal(calls[1][0].content[0].text, 'segunda');
+});
+test('webhook não pede retry quando envio falha e não vaza erro', async () => {
+  const handler = createHandler({ env, makeServices: () => ({
+    complete: async () => ({ content: [{ type: 'text', text: 'oi' }] }),
+    telegram: async () => { throw new Error('private-token'); },
+  }) });
+  const oldError = console.error;
+  const logged = []; console.error = value => logged.push(value);
+  try {
+    const res = response(); await handler(request(), res); assert.equal(res.code, 200);
+    assert.ok(!logged.join('').includes('private-token'));
+  } finally { console.error = oldError; }
+});
+test('configuração incompleta e update malformado são rejeitados', async () => {
+  const res = response();
+  await createHandler({ env: { TELEGRAM_WEBHOOK_SECRET: env.TELEGRAM_WEBHOOK_SECRET } })(request(), res);
+  assert.equal(res.code, 503);
+  const req = request(); delete req.body.update_id;
+  const invalid = response(); await createHandler({ env })(req, invalid); assert.equal(invalid.code, 400);
 });
 test('PDF real processado com dependência e worker instalados', async () => {
   // Minimal, valid PDF with an uncompressed text stream and correct cross references.
