@@ -8,8 +8,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check api/webhook.js && node --check lib/bot.js && node --check scripts/register-webhook.js",
-    "register-webhook": "node --env-file=.env.local scripts/register-webhook.js"
+    "check": "node --check api/chat.js && node --check lib/chat.js && node --check public/app.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.6.0",
