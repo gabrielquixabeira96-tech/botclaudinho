@@ -1,67 +1,47 @@
-# Bot Claudinho — sem banco de dados
+# Claudinho — app web privado com Claude
 
-Bot privado de Telegram em Node.js 24 e Vercel Functions, alimentado pelo Claude Opus.
-Aceita texto, fotos JPEG do Telegram e documentos PDF/TXT, **sem Supabase**.
+Interface web em português para enviar texto, imagens JPG/PNG/WebP e PDF/TXT ao Claude.
+Não usa Telegram, webhook ou Supabase. A chave Anthropic fica apenas no servidor.
 
-**Cada mensagem é independente.** O bot não salva nem recupera histórico de conversa.
-Inclua todo o contexto na mensagem atual ou na legenda do arquivo/foto.
-`/start` explica o funcionamento; `/clear` informa que não há memória para apagar.
+## Uso
 
-## Configuração na Vercel
+Abra o domínio do projeto e entre com sua conta Vercel autorizada na equipe.
+Escreva uma pergunta, opcionalmente anexe um arquivo, e clique em **Enviar**.
+`Ctrl+Enter` também envia. **Limpar tela** remove as mensagens visíveis.
+Cada envio é independente: o histórico exibido existe apenas nesta aba e não é enviado
+nas próximas perguntas. Inclua todo o contexto necessário na mensagem/legenda atual.
 
-Selecione o projeto **botclaudinho** e depois **Environment Variables** na barra lateral.
-Cadastre Name, Value e ambiente; clique **Save**. Use Production para o bot definitivo.
-Faça uma nova implantação após salvar: alterações não afetam implantações anteriores.
+## Configuração
 
-| Variável | Valor informado diretamente na Vercel |
-| --- | --- |
-| `TELEGRAM_TOKEN` | Token do seu bot obtido no BotFather |
-| `ANTHROPIC_API_KEY` | Chave da API Anthropic com acesso e saldo para o modelo |
-| `ALLOWED_USER_ID` | Seu ID numérico de usuário Telegram, não username nem ID do bot |
-| `TELEGRAM_WEBHOOK_SECRET` | Segredo aleatório de 32–256 caracteres: letras, números, `_` e `-` |
-| `ANTHROPIC_MODEL` | Opcional; padrão `claude-opus-5-5` |
+- `ANTHROPIC_API_KEY`: obrigatória, apenas no ambiente servidor.
+- `ANTHROPIC_MODEL`: opcional; padrão `claude-opus-5-5`.
+- As antigas variáveis Telegram são ignoradas e não precisam ser removidas.
+- **Obrigatório:** manter Vercel Authentication em **All Deployments**, incluindo os
+  domínios de produção. A API depende dessa autenticação da plataforma para restringir
+  quem pode consumir sua chave. Não desative nem compartilhe links de bypass.
+  Não há cadastro/login próprio ou senha adicional.
 
-Nenhuma variável `SUPABASE_*`, conta Supabase ou script SQL é necessário.
-Se já existirem variáveis Supabase antigas, esta versão simplesmente não as utiliza.
-Gere o segredo localmente com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
-Não envie credenciais em chats, commits, capturas, URLs ou argumentos de comandos.
+Referências: [Deployment Protection](https://vercel.com/docs/deployment-protection)
+e [Claude Opus](https://platform.claude.com/docs/en/models/opus-5-5/overview).
 
-Referências: [Variáveis na Vercel](https://vercel.com/docs/environment-variables/managing-environment-variables)
-e [modelo Claude Opus](https://platform.claude.com/docs/en/models/opus-5-5/overview).
-O consumo Anthropic é cobrado separadamente. Não use credenciais de produção em Preview.
+## Limites e privacidade
 
-## Registrar webhook — no seu computador
+Até um arquivo de 2 MiB e 60.000 caracteres por envio (pergunta + documento).
+PDFs digitalizados precisam de OCR externo ou envio das páginas como imagens.
+Até 4096 tokens de saída; timeout Anthropic de 120 segundos sem retries automáticos.
+O consumo é cobrado pela Anthropic. Reinícios ou reenvios podem gerar novas cobranças;
+não há controle de orçamento ou rate limit persistente na aplicação.
+Conteúdo é processado temporariamente; não é salvo em banco, localStorage ou logs pelo
+código. Políticas de retenção da Anthropic e da plataforma são independentes.
+Respostas são exibidas como texto, sem executar HTML/Markdown fornecido pela IA.
+A origem do POST deve ser a mesma origem HTTPS do app. Isso é proteção adicional
+contra pedidos cross-site, não substitui o login Vercel.
 
-Requer Node.js 24. Depois de publicar a versão definitiva:
+`GET /api/chat` confirma se uma chave está presente sem mostrá-la. Essa presença não
+prova que a chave é válida, tem créditos ou acesso ao modelo; confirme enviando uma pergunta.
+Não exponha sua chave em mensagens, capturas, URLs, código público ou no navegador.
 
-1. Baixe/clone o repositório e execute `npm ci`.
-2. Copie `.env.example` para `.env.local` e preencha os mesmos valores em um editor local.
-3. Preencha também `BOT_WEBHOOK_URL` com `https://DOMINIO-DE-PRODUCAO/api/webhook`.
-4. Execute `npm run register-webhook`.
-5. No Telegram, teste `/start`, texto, foto e PDF/TXT. Cada envio deve conter seu próprio contexto.
-
-O script registra `secret_token`, somente updates de mensagem e `max_connections: 1`.
-Não descarta mensagens pendentes nem imprime tokens/URLs secretas. Confirma a URL
-registrada com `getWebhookInfo`. O domínio deve estar acessível ao Telegram sem login;
-não registre uma URL de preview protegida. Não há rota pública de administração.
-
-## Segurança, privacidade e limites
-
-- Só o chat privado do dono é aceito. Usuários não autorizados são ignorados.
-- Arquivos até 5 MiB, com limite também durante download. Até 60.000 caracteres
-  extraídos de PDF/TXT. PDFs digitalizados sem texto precisam de OCR externo ou fotos.
-- O bot processa os dados temporariamente, sem persistir histórico ou conteúdo em banco.
-  Telegram e Anthropic recebem o conteúdo necessário; suas políticas de retenção são independentes.
-- Não há lock ou deduplicação persistentes. Retries do Telegram, reinícios ou timeouts
-  podem repetir respostas e chamadas pagas. `max_connections: 1` não garante entrega única.
-- Falha de entrega recebe HTTP 200 para não pedir deliberadamente uma repetição que possa
-  duplicar chamadas pagas. Isso pode perder uma resposta; reenvie a pergunta se necessário.
-- Execução máxima de 300 segundos, chamada Claude com timeout de 120 segundos sem retries
-  automáticos. Erros brutos dos provedores e tokens não são exibidos nem logados pelo código.
-- `GET /api/webhook` apenas confirma que o endpoint carrega; não verifica credenciais
-  ou conectividade com os provedores. A raiz `/` não contém uma interface web.
-
-## Verificação local
+## Testes
 
 ```sh
 npm ci
@@ -69,6 +49,6 @@ npm test
 npm run check
 ```
 
-Os testes usam serviços simulados e um PDF real gerado em memória. Verificam isolamento
-entre mensagens, configuração sem Supabase, webhook privado, limites e tratamento de erros.
-Não chamam Telegram/Anthropic; a integração real exige credenciais e teste no Telegram.
+Testes de validação, origem, isolamento, erros seguros e PDF real com worker instalado.
+A interface pode ser verificada em preview sem chave: ela mostra que o ambiente ainda
+não foi configurado. Não copie uma chave de produção para Preview apenas para testar.

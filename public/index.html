@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Claudinho · seu espaço com Claude</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<aside><a class="brand" href="/">✳ <span>Claudinho</span></a><button id="new-chat" class="new-chat">＋ Limpar tela</button><div class="aside-bottom"><span class="dot"></span> Espaço privado<div>Chave protegida no servidor</div></div></aside>
+<main><header><span>Seu assistente pessoal</span><span class="model">Claude Opus <span class="dot"></span></span></header>
+<section id="welcome"><div class="sun">✳</div><p class="eyebrow">UM ESPAÇO PARA SUAS IDEIAS</p><h1>O que vamos<br><em>descobrir hoje?</em></h1><p class="intro">Escreva, explore uma imagem ou traga um documento.<br>O Claude ajuda você a ir além.</p><div class="suggestions"><button data-prompt="Explique um assunto complexo de forma simples. Pergunte qual assunto quero estudar.">✧ Me ajude a estudar</button><button data-prompt="Me ajude a organizar uma ideia. Pergunte o que tenho em mente.">↗ Organizar uma ideia</button><button data-prompt="Quero analisar um documento. Explique quais formatos posso anexar e como fazer uma boa pergunta.">▤ Analisar um documento</button></div></section>
+<section id="messages" aria-label="Mensagens" aria-live="polite"></section>
+<div class="composer-area"><p id="status" role="status">Conferindo configuração…</p><form id="chat-form"><label class="sr-only" for="prompt">Sua mensagem para Claude</label><textarea id="prompt" maxlength="60000" placeholder="Pergunte ao Claudinho…" rows="3"></textarea><div id="attachment" hidden></div><div class="composer-bottom"><label class="attach" for="file">＋ <span>Anexar arquivo</span></label><input id="file" type="file" accept=".pdf,.txt,.jpg,.jpeg,.png,.webp" hidden><span class="formats">PDF, TXT ou imagem · até 2 MiB</span><button id="send" type="submit">Enviar <span>↑</span></button></div></form><p class="footnote">Cada envio é independente. Inclua o contexto na sua pergunta. Respostas podem conter erros.</p></div>
+</main></body></html>
